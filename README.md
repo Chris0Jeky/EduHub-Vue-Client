@@ -159,6 +159,8 @@ itemsPerPage: 9  // Change as needed
 - Check CORS configuration
 - Inspect browser console
 
-## 📝 License
+## 📝 License status
 
-MIT License - Educational Project
+No repository-wide open-source licence has been granted. This is coursework
+with contributor rights still to be confirmed, so reuse requires permission
+from the relevant rights holders.
