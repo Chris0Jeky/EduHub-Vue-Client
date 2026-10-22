@@ -256,7 +256,7 @@
                                     <h5 class="lesson-title">{{ lesson.topic }}</h5>
                                     <div class="lesson-meta">
                                         <span><i class="fas fa-map-marker-alt"></i> {{ lesson.location }}</span>
-                                        <span><i class="fas fa-users"></i> {{ lesson.spaces }} spaces</span>
+                                        <span><i class="fas fa-users"></i> {{ remainingSpaces(lesson) }} spaces</span>
                                     </div>
                                     <p class="lesson-description">{{ lesson.description || 'Join our engaging ' + lesson.topic + ' class designed to inspire and educate.' }}</p>
                                     <div class="lesson-footer">
@@ -265,9 +265,9 @@
                                             <span class="price-value">£{{ lesson.price }}</span>
                                         </div>
                                         <button class="btn btn-add-cart" @click="addItem(lesson)" 
-                                                :disabled="lesson.spaces === 0">
+                                                :disabled="submitting || remainingSpaces(lesson) === 0">
                                             <i class="fas fa-cart-plus"></i> 
-                                            {{ lesson.spaces === 0 ? 'Sold Out' : 'Add to Cart' }}
+                                            {{ remainingSpaces(lesson) === 0 ? 'Sold Out' : 'Add to Cart' }}
                                         </button>
                                     </div>
                                 </div>
