@@ -150,6 +150,12 @@ itemsPerPage: 9  // Change as needed
 
 ## 🐛 Troubleshooting
 
+### Regression tests
+
+Run `node --test test/*.test.js` with Node.js 18 or later. The tests exercise the
+application's lesson loading methods with controlled HTTP completion order;
+only the most recent search or sort request may update results and loading UI.
+
 ### Cart not persisting?
 - Check browser localStorage support
 - Clear browser cache

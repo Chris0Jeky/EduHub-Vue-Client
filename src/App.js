@@ -21,6 +21,7 @@ new Vue({
         // UI State
         checkOutArea: false,
         loading: false,
+        productsRequestId: 0,
         submitting: false,
         showCart: false,
         showStats: false,
@@ -63,6 +64,7 @@ new Vue({
         },
         // API Methods
         async fetchProducts() {
+            const requestId = ++this.productsRequestId;
             this.loading = true;
             const params = new URLSearchParams();
             
@@ -77,6 +79,7 @@ new Vue({
             try {
                 const response = await fetch(`${this.baseUrl}/api/lessons?${params.toString()}`);
                 const result = await response.json();
+                if (requestId !== this.productsRequestId) return;
                 
                 // Check if it's the new API format or old format
                 let lessons = [];
@@ -103,10 +106,11 @@ new Vue({
                 
                 console.log('Products loaded:', this.products.length, 'Sample imageUrl:', this.products[0]?.imageUrl);
             } catch (error) {
+                if (requestId !== this.productsRequestId) return;
                 console.error('Error fetching products:', error);
                 this.showNotification('Error', 'Failed to load lessons. Please try again.');
             } finally {
-                this.loading = false;
+                if (requestId === this.productsRequestId) this.loading = false;
             }
         },
         
