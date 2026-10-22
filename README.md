@@ -170,3 +170,35 @@ only the most recent search or sort request may update results and loading UI.
 No repository-wide open-source licence has been granted. This is coursework
 with contributor rights still to be confirmed, so reuse requires permission
 from the relevant rights holders.
+
+### Inventory and checkout retries
+
+Cart add/remove/clear operations are local and never PUT lesson inventory. The
+remaining count shown on cards subtracts this browser's cart quantities from
+freshly fetched server availability. Reloading retains the cart without reserving
+places. Only the API's confirmed order transaction decrements stock; another
+shopper can buy a place while it is in your cart. After a checkout rejection the
+client refreshes availability and keeps the cart so you can remove unavailable
+items and retry.
+
+Checkout sends a random `Idempotency-Key` supported by the matching API change.
+An unresolved attempt and its exact cart/contact signature are saved in
+`localStorage.pendingCheckout`. A network failure or reload retains that key;
+resubmitting the unchanged cart and contact information retrieves the original
+confirmation if the server already committed it. Contact fields must be re-entered
+after reload. Changing the payload starts a new attempt. Confirmation clears the
+saved attempt; do not clear browser storage during an uncertain checkout. Pending
+signatures contain contact details in this browser's local storage. This is a guest
+checkout retry mechanism, not authentication or a payment workflow. Deploy the
+matching API retry support first; older APIs ignore this header and cannot prevent
+duplicate retries.
+
+Catalogue loading follows server pages of 100 records before local category
+filtering and nine-card pagination. The load is bounded to 101 server pages
+(the API's maximum offset); larger result sets display an error asking for a
+narrower search. A failed or superseded later page never replaces the catalogue
+with a partial result. Legacy direct-array responses remain supported. Independent
+HTTP pages are not a database snapshot if records change during loading.
+
+Run all client regressions with `node --test test/*.test.js`. There is no package
+manager build step; the application runs directly from static files with Vue 2.

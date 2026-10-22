@@ -36,6 +36,7 @@ new Vue({
         // Order State
         orderSubmitted: false,
         confirmationNumber: '',
+        pendingCheckout: null,
         
         // Pagination
         currentPage: 1,
@@ -77,21 +78,34 @@ new Vue({
             }
             
             try {
-                const response = await fetch(`${this.baseUrl}/api/lessons?${params.toString()}`);
-                const result = await response.json();
-                if (requestId !== this.productsRequestId) return;
-                
-                // Check if it's the new API format or old format
+                // Load bounded server pages before applying local category filtering/pagination.
+                // No partial catalogue is committed if a later page fails or is superseded.
                 let lessons = [];
-                if (result.status === 'success' && result.data) {
-                    lessons = result.data.lessons;
-                    this.stats.totalLessons = result.data.pagination.total;
-                } else if (Array.isArray(result)) {
-                    // Old API format - direct array
-                    lessons = result;
-                } else {
-                    throw new Error('Unexpected API response format');
+                let total = 0;
+                let pages = 1;
+                params.set('limit', '100');
+                for (let page = 1; page <= pages; page++) {
+                    params.set('page', String(page));
+                    const response = await fetch(`${this.baseUrl}/api/lessons?${params.toString()}`);
+                    const result = await response.json();
+                    if (requestId !== this.productsRequestId) return;
+                    if (!response.ok) throw new Error(result.message || 'Failed to load lessons');
+                    if (Array.isArray(result)) {
+                        lessons = result;
+                        total = result.length;
+                        break;
+                    }
+                    if (result.status !== 'success' || !Array.isArray(result.data?.lessons)) {
+                        throw new Error('Unexpected API response format');
+                    }
+                    lessons.push(...result.data.lessons);
+                    total = result.data.pagination.total;
+                    pages = result.data.pagination.pages ?? 1;
+                    if (!Number.isInteger(pages) || pages < 0 || pages > 101) {
+                        throw new Error('Too many lessons. Please narrow your search.');
+                    }
                 }
+                this.stats.totalLessons = total;
                 
                 // Normalize data to use 'spaces' field and fix image URLs
                 this.products = lessons.map(product => {
@@ -104,11 +118,12 @@ new Vue({
                     };
                 });
                 
+                this.currentPage = Math.min(this.currentPage, Math.max(1, this.totalPages));
                 console.log('Products loaded:', this.products.length, 'Sample imageUrl:', this.products[0]?.imageUrl);
             } catch (error) {
                 if (requestId !== this.productsRequestId) return;
                 console.error('Error fetching products:', error);
-                this.showNotification('Error', 'Failed to load lessons. Please try again.');
+                this.showNotification('Error', error.message || 'Failed to load lessons. Please try again.');
             } finally {
                 if (requestId === this.productsRequestId) this.loading = false;
             }
@@ -116,69 +131,41 @@ new Vue({
         
         // Cart Management
         addItem(product) {
-            if (product.spaces > 0) {
+            if (!this.submitting && this.remainingSpaces(product) > 0) {
                 this.cart.push({ 
                     ...product,
                     imageUrl: product.imageUrl || (this.baseUrl + product.image)
                 });
-                product.spaces--;
                 this.saveCartToStorage();
                 this.showNotification('Added to Cart', `${product.topic} has been added to your cart.`);
-                
-                // Update on server
-                this.updateProductSpaces(product._id, product.spaces);
             }
         },
         
         incrementItem(item) {
             const product = this.products.find(p => p._id === item._id);
-            if (product && product.spaces > 0) {
+            if (!this.submitting && product && this.remainingSpaces(product) > 0) {
                 this.cart.push({ 
                     ...product,
                     imageUrl: product.imageUrl || (this.baseUrl + product.image)
                 });
-                product.spaces--;
                 this.saveCartToStorage();
-                this.updateProductSpaces(product._id, product.spaces);
             }
         },
         
         decrementItem(item) {
+            if (this.submitting) return;
             const index = this.cart.findIndex(cartItem => cartItem._id === item._id);
             if (index !== -1) {
                 this.cart.splice(index, 1);
-                const product = this.products.find(p => p._id === item._id);
-                if (product) {
-                    product.spaces++;
-                    this.updateProductSpaces(product._id, product.spaces);
-                }
                 this.saveCartToStorage();
             }
         },
         
         clearCart() {
-            this.cart.forEach(cartItem => {
-                const product = this.products.find(p => p._id === cartItem._id);
-                if (product) {
-                    product.spaces++;
-                }
-            });
+            if (this.submitting) return;
             this.cart = [];
             this.saveCartToStorage();
             this.showNotification('Cart Cleared', 'All items have been removed from your cart.');
-        },
-        
-        async updateProductSpaces(productId, spaces) {
-            try {
-                // Use 'space' field for backward compatibility
-                await fetch(`${this.baseUrl}/api/lessons/${productId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ space: spaces })
-                });
-            } catch (error) {
-                console.error('Error updating product spaces:', error);
-            }
         },
         
         // Order Management
@@ -198,9 +185,15 @@ new Vue({
             };
             
             try {
+                const signature = JSON.stringify(orderData);
+                if (!this.pendingCheckout || this.pendingCheckout.signature !== signature) {
+                    const attempt = { key: crypto.randomUUID(), signature };
+                    localStorage.setItem('pendingCheckout', JSON.stringify(attempt));
+                    this.pendingCheckout = attempt;
+                }
                 const response = await fetch(`${this.baseUrl}/api/orders`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': this.pendingCheckout.key },
                     body: JSON.stringify(orderData)
                 });
                 
@@ -215,7 +208,9 @@ new Vue({
                 this.orderSubmitted = true;
                 this.showSuccessModal();
                 
-                // Clear form
+                // Clear the successful attempt only after receiving its confirmation.
+                this.pendingCheckout = null;
+                localStorage.removeItem('pendingCheckout');
                 this.cart = [];
                 this.name = '';
                 this.phone = '';
@@ -227,6 +222,7 @@ new Vue({
             } catch (error) {
                 console.error('Error submitting order:', error);
                 this.showNotification('Error', error.message || 'Failed to submit order. Please try again.');
+                await this.fetchProducts();
             } finally {
                 this.submitting = false;
             }
@@ -344,6 +340,8 @@ new Vue({
         },
         
         loadCartFromStorage() {
+            const savedCheckout = localStorage.getItem('pendingCheckout');
+            if (savedCheckout) this.pendingCheckout = JSON.parse(savedCheckout);
             const savedCart = localStorage.getItem('cart');
             if (savedCart) {
                 this.cart = JSON.parse(savedCart).map(item => ({
@@ -354,9 +352,13 @@ new Vue({
         },
         
         // Helper Methods
+        remainingSpaces(product) {
+            return Math.max(0, product.spaces - this.cart.filter(item => item._id === product._id).length);
+        },
+
         canAddMore(item) {
             const product = this.products.find(p => p._id === item._id);
-            return product && product.spaces > 0;
+            return !this.submitting && product && this.remainingSpaces(product) > 0;
         },
         
         sortProducts() {
